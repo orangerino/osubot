@@ -1,6 +1,6 @@
-apikey = "57400fdccc8ab445b9a736e2177a13af6571819f"
-nickname = "Oranger"
-password = "303cb030"
+apikey = "Key" # you can get your key here: https://osu.ppy.sh/p/api
+nickname = "Username" # osu username, get it here: https://osu.ppy.sh/p/irc
+password = "Server Password" # osu server pass, get it here: https://osu.ppy.sh/p/irc
 mods = {
     "0": "Nomod",
     "1": "NF",
