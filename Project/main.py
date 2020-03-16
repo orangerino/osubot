@@ -2,8 +2,9 @@ import socket
 import osuapi
 import time
 import tokens
+import help
 from misc import *
-
+from random import *
 
 threshold = 3*60 + 5  # ping-pong threshold.
 last_ping = time.time() # if difference between ping times is bigger than bot will reconnect to server
@@ -17,10 +18,11 @@ last_asked_beatmap = {  # this dict contains last requested beatmap by each user
 
 
 def sendPp(beatmap, mods=0, accuracy=[95, 99, 100],  sender=None):  # use api methods to receive info about beatmap
-    last_asked_beatmap[sender] = {}
-    last_asked_beatmap[sender]["beatmap_id"] = beatmap  # the main thing to know is PP you will get by FCing with specific accuracy
+    last_asked_beatmap[sender] = {}  # the main thing to know is PP you will get by FCing with specific accuracy
+    last_asked_beatmap[sender]["beatmap_id"] = beatmap
     last_asked_beatmap[sender]["mods"] = mods
     bot.send_private_message(sender, osuapi.extractMapPP(osuapi.getMapPP(beatmap, accuracy=accuracy, mods=mods)))
+    osuapi.learn([beatmap])
 
 
 def sendPpForSpecificMods():  # use api methods to receive info about beatmap but in difference with function before
@@ -28,21 +30,79 @@ def sendPpForSpecificMods():  # use api methods to receive info about beatmap bu
 
 
 def sendPlayerStats(player, sender):  # use api methods to receive user information
+    if '%20' in player:
+        player = ' '.join(player.split('%20'))
     words = 'Player stats for {}: '.format(player)
     message = osuapi.extractPlayerStats(osuapi.getPlayerStats(player))
     if message == 'error':
-        bot.send_private_message(sender, 'Error! Try again')
+        bot.send_private_message(sender, "This player doesn't seem to exist! Try again")
     else:
         bot.send_private_message(sender, words + message)
 
+def recommendMap(player, mods=0, sender="None"):
+    average_pp = osuapi.getPlayerAveragePP(osuapi.getPlayerBest(player))
+    if mods == 0:
+        amods = "NOMOD"
+    else:
+        mods = mods_converter(mods.upper())
+        if mods != "error":
+            amods = mods_converter(mods, 1)
+        else:
+            bot.send_private_message(sender, "I don't know such mods! Try again!")
+            return
+    maps = []
+    rates = []
+    try:
+        with open("beatmap_db.json", 'r') as f:
+            data = json.loads(f.read())
+            for map in sample(list(data[amods].keys()), len(list(data[amods].keys()))):
+                pp = data[amods][map][0]
+                if average_pp - 0.15*average_pp < pp < average_pp + 0.15*average_pp:
+                    maps.append(map)
+                    if len(maps) == 3:
+                        break
+    except:
+        bot.send_private_message(sender, "I don't support this mod for recommendations. The only suppoted !rec mods are HD, DT, HR")
+        return
 
-def recommendMap():
-    pass
+
+    with open("rating_db.json", 'r') as f:
+        data = json.loads(f.read())
+        for map in maps:
+            rates.append(data[map]["rating"])
+
+    s = round(sum(rates) * 10)
+    key = randint(0, s)
+    if 0 <= key <= round(max(rates) * 10):
+        sendPp(maps[rates.index(max(rates))], mods=mods, sender=sender)
+        last_asked_beatmap[sender]["beatmap_id"] = maps[rates.index(max(rates))]
+        last_asked_beatmap[sender]["mods"] = mods
+    elif round(max(rates) * 10) + 1 <= key <= round(max(rates) * 10) + round(min(rates) * 10):
+        sendPp(maps[rates.index(min(rates))], mods=mods, sender=sender)
+        last_asked_beatmap[sender]["beatmap_id"] = maps[rates.index(min(rates))]
+        last_asked_beatmap[sender]["mods"] = mods
+    else:
+        maps.remove(max(maps))
+        sendPp(maps[rates.index(max(rates))], mods=mods, sender=sender)
+        last_asked_beatmap[sender]["beatmap_id"] = maps[rates.index(max(rates))]
+        last_asked_beatmap[sender]["mods"] = mods
 
 
-def rateMap():
-    pass
 
+
+def rateMap(beatmap_id, rating, sender):
+    rating_comp = {
+        "unplayable": 1,
+        "bad": 2,
+        "good": 3
+    }
+    if rating in rating_comp.keys():
+        rating_num = rating_comp[rating]
+    else:
+        bot.send_private_message(sender, '{} is not an rating option, try again'.format(rating[0].upper() + rating[1:].lower()))
+        return
+    write_rate_to_db(beatmap_id, rating_num)
+    bot.send_private_message(sender, 'Map was rated as {}, thanks for your feedback'.format(rating))
 
 def getLastPlayedMaps(player, sender):
     words = 'Last played maps for {}: '.format(player)
@@ -62,6 +122,12 @@ def getSupporterTime():
 
 def skip(self, *args):
     pass
+
+def help(sender):
+    greetings = "Hello, I'm Oranger osu! bot. Here is my command list: "
+    bot.send_private_message(sender, greetings)
+    for i in range(len(help.lines)):
+        bot.send_private_message(sender, lines[i])
 
 
 class OrangerinoOsuBot:
@@ -126,7 +192,8 @@ class OrangerinoOsuBot:
                     if command == 'PRIVMSG':
                         if action.split()[2] == self.settings["botnick"]:
                             received_message = (' '.join(action.split()[3:]))[1:]
-                            self.actions.append([sender, received_message])  # we collect actions in bot's body so we can do them by one by one and don't forget about any of them
+                            self.actions.append([sender, received_message])
+                            print(sender, received_message)# we collect actions in bot's body so we can do them by one by one and don't forget about any of them
                     if command.find('PING') != -1:
                         last_ping = time.time()
                         self.send_private_message(message="PONG "+command.split()[1]+"\r\n")
@@ -149,22 +216,34 @@ class OrangerinoOsuBot:
                         mods += tokens.mods_from_words_to_abb[word[1:]]
                     elif word[1:-1] in tokens.mods_from_words_to_abb.keys():
                         mods += tokens.mods_from_words_to_abb[word[1:-1]]
+                mods = mods_converter(mods)
                 command = sendPp
-                args = [beatmap_id, mods if mods != '' else 0, [98, 99, 100]]  # /np calls function that will return beatmap info and pp for stock accuracies (98, 99, 100)
+                args = [beatmap_id, mods, [98, 99, 100]]  # /np calls function that will return beatmap info and pp for stock accuracies (98, 99, 100)
             elif call == '!acc':
                 command = sendPp
                 args = [last_asked_beatmap[sender]["beatmap_id"], last_asked_beatmap[sender]["mods"], [args[0]]]
             elif call == '!mods':
                 command = sendPp
-                args = [last_asked_beatmap[sender]["beatmap_id"], args[0].upper(), [98, 99, 100]]
+                mods = mods_converter(args[0].upper())
+                args = [last_asked_beatmap[sender]["beatmap_id"], mods, [98, 99, 100]]
             elif call == '!last':
                 command = getLastPlayedMaps
             elif call == '!stats':
                 command = sendPlayerStats
+                if len(args) > 1:
+                    args = ["%20".join(args)]
             elif call == '!rec':
                 command = recommendMap
+                if args:
+                    args = [sender, args[0]]
+                else:
+                    args = [sender, 0]
             elif call == '!rate':
                 command = rateMap
+                args = [last_asked_beatmap[sender]["beatmap_id"]]+ [' '.join(action[1].split()[1:])]
+            elif call == '!help':
+                command = help
+                args = []
             else:
                 command = skip
             args = args + [sender]
@@ -189,8 +268,3 @@ def main():
 
 while True:
     main()
-
-
-
-
-
