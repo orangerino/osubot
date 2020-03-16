@@ -2,7 +2,7 @@ import socket
 import osuapi
 import time
 import tokens
-import help
+import help_lines
 from misc import *
 from random import *
 
@@ -126,8 +126,8 @@ def skip(self, *args):
 def help(sender):
     greetings = "Hello, I'm Oranger osu! bot. Here is my command list: "
     bot.send_private_message(sender, greetings)
-    for i in range(len(help.lines)):
-        bot.send_private_message(sender, lines[i])
+    for i in range(7):
+        bot.send_private_message(sender, help_lines.lines[str(i+1)])
 
 
 class OrangerinoOsuBot:
